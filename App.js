@@ -9,47 +9,33 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
-  Image,
 } from 'react-native';
 
 import * as Location from 'expo-location';
-import MapView, { Marker, UrlTile } from 'react-native-maps';
+import MapView, { UrlTile } from 'react-native-maps';
 
 import { supabase } from './lib/supabase';
+
 import { BUS_ID, getInitialMode, canGoBackHome } from './src/config/appConfig';
+
 import {
   getDurationBetween,
   formatTime,
   calculateTrackingQuality,
 } from './src/utils/trackingUtils';
+
 import { getBusStatusInfo } from './src/utils/statusUtils';
 
-/*
-|--------------------------------------------------------------------------
-| App configuration
-|--------------------------------------------------------------------------
-*/
+import {
+  getActiveRoutes,
+  getActiveBusesByRoute,
+} from './src/services/routeService';
 
-/*
-|--------------------------------------------------------------------------
-| Main application
-|--------------------------------------------------------------------------
-*/
+import BusMarker from './src/components/BusMarker';
+import RouteSelector from './src/components/RouteSelector';
 
 export default function App() {
-  /*
-  |--------------------------------------------------------------------------
-  | Navigation mode
-  |--------------------------------------------------------------------------
-  */
-
   const [mode, setMode] = useState(getInitialMode());
-
-  /*
-  |--------------------------------------------------------------------------
-  | Student states
-  |--------------------------------------------------------------------------
-  */
 
   const [busLocation, setBusLocation] = useState(null);
   const [loadingLocation, setLoadingLocation] = useState(false);
@@ -57,11 +43,15 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [followBus, setFollowBus] = useState(true);
 
-  /*
-  |--------------------------------------------------------------------------
-  | Driver states
-  |--------------------------------------------------------------------------
-  */
+  const [routes, setRoutes] = useState([]);
+  const [routeLoading, setRouteLoading] = useState(true);
+  const [routeErrorMessage, setRouteErrorMessage] = useState('');
+  const [selectedRouteId, setSelectedRouteId] = useState(null);
+
+  const [routeBuses, setRouteBuses] = useState([]);
+  const [loadingRouteBuses, setLoadingRouteBuses] = useState(false);
+  const [selectedStudentBusId, setSelectedStudentBusId] = useState(null);
+  const [busSelectionMessage, setBusSelectionMessage] = useState('');
 
   const [isTracking, setIsTracking] = useState(false);
   const [driverStatus, setDriverStatus] = useState('Not started yet');
@@ -72,44 +62,39 @@ export default function App() {
   const [activeTripId, setActiveTripId] = useState(null);
   const [tripStartedAt, setTripStartedAt] = useState(null);
   const [updateCount, setUpdateCount] = useState(0);
-
   const [lastTripSummary, setLastTripSummary] = useState(null);
-
-  /*
-  |--------------------------------------------------------------------------
-  | References
-  |--------------------------------------------------------------------------
-  */
 
   const locationSubscriptionRef = useRef(null);
   const mapRef = useRef(null);
-
-  // Prevent stale update-count value inside location watcher.
   const updateCountRef = useRef(0);
-
-  // Prevent realtime subscription recreation when Follow Bus changes.
   const followBusRef = useRef(true);
 
-  /*
-  |--------------------------------------------------------------------------
-  | Map helpers
-  |--------------------------------------------------------------------------
-  */
+  function normalizeLocation(locationData) {
+    if (!locationData) {
+      return null;
+    }
 
-  function getInitialRegion() {
-    const latitude =
-      typeof busLocation?.latitude === 'number'
-        ? busLocation.latitude
-        : 23.797911;
+    const latitude = Number(locationData.latitude);
+    const longitude = Number(locationData.longitude);
 
-    const longitude =
-      typeof busLocation?.longitude === 'number'
-        ? busLocation.longitude
-        : 90.449223;
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null;
+    }
 
     return {
+      ...locationData,
       latitude,
       longitude,
+    };
+  }
+
+  function getInitialRegion() {
+    const latitude = Number(busLocation?.latitude);
+    const longitude = Number(busLocation?.longitude);
+
+    return {
+      latitude: Number.isFinite(latitude) ? latitude : 23.797911,
+      longitude: Number.isFinite(longitude) ? longitude : 90.449223,
       latitudeDelta: 0.01,
       longitudeDelta: 0.01,
     };
@@ -120,29 +105,22 @@ export default function App() {
       return;
     }
 
-    const latitude = Number(locationData.latitude);
-    const longitude = Number(locationData.longitude);
+    const normalizedLocation = normalizeLocation(locationData);
 
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    if (!normalizedLocation) {
       return;
     }
 
     mapRef.current.animateToRegion(
       {
-        latitude,
-        longitude,
+        latitude: normalizedLocation.latitude,
+        longitude: normalizedLocation.longitude,
         latitudeDelta: 0.01,
         longitudeDelta: 0.01,
       },
       duration,
     );
   }
-
-  /*
-  |--------------------------------------------------------------------------
-  | Student bus status helpers
-  |--------------------------------------------------------------------------
-  */
 
   function getStudentStatusInfo() {
     const statusInformation = getBusStatusInfo(busLocation, currentTime);
@@ -160,12 +138,6 @@ export default function App() {
       style: statusStyle,
     };
   }
-
-  /*
-  |--------------------------------------------------------------------------
-  | Trip helpers
-  |--------------------------------------------------------------------------
-  */
 
   function getTripDurationText() {
     if (!tripStartedAt) {
@@ -201,13 +173,21 @@ export default function App() {
     return styles.qualityWeak;
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | Fetch latest bus location
-  |--------------------------------------------------------------------------
-  */
+  function getSelectedRoute() {
+    return routes.find(route => route.id === selectedRouteId) || null;
+  }
 
-  async function fetchBusLocation() {
+  function getSelectedBus() {
+    return routeBuses.find(bus => bus.id === selectedStudentBusId) || null;
+  }
+
+  async function fetchBusLocation(busId = selectedStudentBusId) {
+    if (!busId) {
+      setBusLocation(null);
+      setErrorMessage('');
+      return;
+    }
+
     try {
       setLoadingLocation(true);
       setErrorMessage('');
@@ -215,7 +195,7 @@ export default function App() {
       const { data, error } = await supabase
         .from('live_locations')
         .select('*')
-        .eq('bus_id', BUS_ID)
+        .eq('bus_id', busId)
         .maybeSingle();
 
       if (error) {
@@ -227,33 +207,131 @@ export default function App() {
         return;
       }
 
-      if (!data) {
+      const normalizedLocation = normalizeLocation(data);
+
+      if (!normalizedLocation) {
         setBusLocation(null);
-        setErrorMessage('No bus location found yet.');
+        setErrorMessage(`${busId} has not started live tracking yet.`);
 
         return;
       }
 
-      setBusLocation(data);
+      setBusLocation(normalizedLocation);
 
       setTimeout(() => {
-        focusMapOnLocation(data);
+        focusMapOnLocation(normalizedLocation);
       }, 250);
     } catch (error) {
-      console.log('FETCH CATCH ERROR:', error);
+      console.log('FETCH LOCATION ERROR:', error);
 
-      setErrorMessage(error?.message || 'Something went wrong.');
+      setErrorMessage(error?.message || 'Could not load bus location.');
+
       setBusLocation(null);
     } finally {
       setLoadingLocation(false);
     }
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | Send driver location to Supabase
-  |--------------------------------------------------------------------------
-  */
+  async function loadBusesForRoute(routeId) {
+    if (!routeId) {
+      setRouteBuses([]);
+      setSelectedStudentBusId(null);
+      setBusLocation(null);
+      return;
+    }
+
+    try {
+      setLoadingRouteBuses(true);
+      setBusSelectionMessage('');
+      setErrorMessage('');
+      setBusLocation(null);
+
+      const activeBuses = await getActiveBusesByRoute(routeId);
+
+      setRouteBuses(activeBuses);
+
+      if (activeBuses.length === 0) {
+        setSelectedStudentBusId(null);
+        setBusLocation(null);
+
+        setBusSelectionMessage(
+          'No active bus is currently assigned to this route.',
+        );
+
+        return;
+      }
+
+      const firstActiveBus = activeBuses[0];
+
+      setSelectedStudentBusId(firstActiveBus.id);
+
+      setBusSelectionMessage(
+        `${firstActiveBus.displayName} selected for live tracking.`,
+      );
+    } catch (error) {
+      console.log('LOAD ROUTE BUSES ERROR:', error);
+
+      setRouteBuses([]);
+      setSelectedStudentBusId(null);
+      setBusLocation(null);
+
+      setBusSelectionMessage(error?.message || 'Could not load route buses.');
+    } finally {
+      setLoadingRouteBuses(false);
+    }
+  }
+
+  async function handleRouteSelection(route) {
+    if (!route?.id) {
+      return;
+    }
+
+    if (route.id === selectedRouteId) {
+      return;
+    }
+
+    setSelectedRouteId(route.id);
+    setSelectedStudentBusId(null);
+    setRouteBuses([]);
+    setBusLocation(null);
+    setErrorMessage('');
+    setBusSelectionMessage('');
+
+    await loadBusesForRoute(route.id);
+  }
+
+  async function loadRoutes() {
+    try {
+      setRouteLoading(true);
+      setRouteErrorMessage('');
+
+      const activeRoutes = await getActiveRoutes();
+
+      setRoutes(activeRoutes);
+
+      if (activeRoutes.length === 0) {
+        setSelectedRouteId(null);
+        setRouteErrorMessage('No active route found.');
+        return;
+      }
+
+      const defaultRoute =
+        activeRoutes.find(route => route.id === 'route_001') || activeRoutes[0];
+
+      setSelectedRouteId(defaultRoute.id);
+
+      await loadBusesForRoute(defaultRoute.id);
+    } catch (error) {
+      console.log('LOAD ROUTES ERROR:', error);
+
+      setRoutes([]);
+      setSelectedRouteId(null);
+
+      setRouteErrorMessage(error?.message || 'Could not load routes.');
+    } finally {
+      setRouteLoading(false);
+    }
+  }
 
   async function sendCoordsToSupabase(coords, tripId = activeTripId) {
     try {
@@ -262,15 +340,19 @@ export default function App() {
         return;
       }
 
-      if (
-        typeof coords?.latitude !== 'number' ||
-        typeof coords?.longitude !== 'number'
-      ) {
+      const latitude = Number(coords?.latitude);
+      const longitude = Number(coords?.longitude);
+
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
         setDriverStatus('Invalid GPS coordinates received.');
         return;
       }
 
-      if (typeof coords.accuracy === 'number' && coords.accuracy > 100) {
+      if (
+        typeof coords.accuracy === 'number' &&
+        Number.isFinite(coords.accuracy) &&
+        coords.accuracy > 100
+      ) {
         setDriverStatus(`Weak GPS accuracy: ${Math.round(coords.accuracy)}m`);
 
         return;
@@ -280,20 +362,14 @@ export default function App() {
 
       const liveLocationPayload = {
         bus_id: BUS_ID,
-        latitude: coords.latitude,
-        longitude: coords.longitude,
+        latitude,
+        longitude,
         accuracy: coords.accuracy ?? null,
         speed: coords.speed ?? null,
         heading: coords.heading ?? null,
         is_active: true,
         updated_at: currentIsoTime,
       };
-
-      /*
-      |--------------------------------------------------------------------------
-      | 1. Update latest live location
-      |--------------------------------------------------------------------------
-      */
 
       const { data: liveLocationData, error: liveLocationError } =
         await supabase
@@ -314,19 +390,13 @@ export default function App() {
         return;
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | 2. Save location history
-      |--------------------------------------------------------------------------
-      */
-
       const { error: locationLogError } = await supabase
         .from('location_logs')
         .insert({
           trip_id: tripId,
           bus_id: BUS_ID,
-          latitude: coords.latitude,
-          longitude: coords.longitude,
+          latitude,
+          longitude,
           accuracy: coords.accuracy ?? null,
           speed: coords.speed ?? null,
           heading: coords.heading ?? null,
@@ -336,18 +406,12 @@ export default function App() {
       if (locationLogError) {
         console.log('LOCATION LOG ERROR:', locationLogError);
 
-        setDriverStatus('Live sent, but history log failed.');
+        setDriverStatus('Live location sent, but history log failed.');
 
         Alert.alert('Location Log Error', locationLogError.message);
 
         return;
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | 3. Update trip summary
-      |--------------------------------------------------------------------------
-      */
 
       const nextUpdateCount = updateCountRef.current + 1;
 
@@ -358,8 +422,8 @@ export default function App() {
         .from('trips')
         .update({
           total_updates: nextUpdateCount,
-          last_latitude: coords.latitude,
-          last_longitude: coords.longitude,
+          last_latitude: latitude,
+          last_longitude: longitude,
           last_accuracy: coords.accuracy ?? null,
         })
         .eq('id', tripId);
@@ -368,11 +432,11 @@ export default function App() {
         console.log('TRIP UPDATE ERROR:', tripUpdateError);
       }
 
-      setLastSentLocation(liveLocationData);
-      setLastSentTime(new Date().toLocaleTimeString());
-      setDriverStatus('Location sent and logged successfully.');
+      setLastSentLocation(normalizeLocation(liveLocationData));
 
-      console.log('LOCATION SENT AND LOGGED:', liveLocationData);
+      setLastSentTime(new Date().toLocaleTimeString());
+
+      setDriverStatus('Location sent and logged successfully.');
     } catch (error) {
       console.log('SEND LOCATION ERROR:', error);
 
@@ -384,12 +448,6 @@ export default function App() {
       );
     }
   }
-
-  /*
-  |--------------------------------------------------------------------------
-  | Create new trip
-  |--------------------------------------------------------------------------
-  */
 
   async function createTripSession() {
     try {
@@ -421,8 +479,6 @@ export default function App() {
       setUpdateCount(0);
       setLastTripSummary(null);
 
-      console.log('TRIP CREATED:', data);
-
       return data;
     } catch (error) {
       console.log('CREATE TRIP CATCH ERROR:', error);
@@ -432,12 +488,6 @@ export default function App() {
       return null;
     }
   }
-
-  /*
-  |--------------------------------------------------------------------------
-  | Get first location
-  |--------------------------------------------------------------------------
-  */
 
   async function getOneCurrentLocationAndSend(tripId = activeTripId) {
     try {
@@ -459,12 +509,6 @@ export default function App() {
       );
     }
   }
-
-  /*
-  |--------------------------------------------------------------------------
-  | Start driver tracking
-  |--------------------------------------------------------------------------
-  */
 
   async function startTracking() {
     try {
@@ -495,32 +539,15 @@ export default function App() {
       }
 
       setIsTracking(true);
+
       setDriverStatus('Tracking started. Waiting for GPS...');
 
-      /*
-      |--------------------------------------------------------------------------
-      | Send first location immediately
-      |--------------------------------------------------------------------------
-      */
-
       await getOneCurrentLocationAndSend(newTrip.id);
-
-      /*
-      |--------------------------------------------------------------------------
-      | Remove previous watcher
-      |--------------------------------------------------------------------------
-      */
 
       if (locationSubscriptionRef.current) {
         locationSubscriptionRef.current.remove();
         locationSubscriptionRef.current = null;
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | Continuous foreground location tracking
-      |--------------------------------------------------------------------------
-      */
 
       locationSubscriptionRef.current = await Location.watchPositionAsync(
         {
@@ -536,17 +563,12 @@ export default function App() {
       console.log('START TRACKING ERROR:', error);
 
       setIsTracking(false);
+
       setDriverStatus('Could not start tracking.');
 
       Alert.alert('Error', error?.message || 'Could not start tracking.');
     }
   }
-
-  /*
-  |--------------------------------------------------------------------------
-  | Stop driver tracking
-  |--------------------------------------------------------------------------
-  */
 
   async function stopTracking() {
     try {
@@ -559,12 +581,6 @@ export default function App() {
       setDriverStatus('Stopping trip...');
 
       const currentIsoTime = new Date().toISOString();
-
-      /*
-      |--------------------------------------------------------------------------
-      | Mark bus offline
-      |--------------------------------------------------------------------------
-      */
 
       const { error: liveLocationError } = await supabase
         .from('live_locations')
@@ -579,12 +595,6 @@ export default function App() {
 
         Alert.alert('Supabase Error', liveLocationError.message);
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | Complete trip
-      |--------------------------------------------------------------------------
-      */
 
       let completedTrip = null;
 
@@ -608,12 +618,6 @@ export default function App() {
           completedTrip = completedTripData;
         }
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | Generate trip summary
-      |--------------------------------------------------------------------------
-      */
 
       if (completedTrip) {
         const { data: locationLogs, error: logsError } = await supabase
@@ -648,6 +652,7 @@ export default function App() {
       }
 
       setDriverStatus('Trip completed successfully.');
+
       setActiveTripId(null);
       setTripStartedAt(null);
     } catch (error) {
@@ -659,59 +664,27 @@ export default function App() {
     }
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | Keep Follow Bus ref updated
-  |--------------------------------------------------------------------------
-  */
+  function toggleFollowBus() {
+    const nextValue = !followBusRef.current;
+
+    followBusRef.current = nextValue;
+    setFollowBus(nextValue);
+
+    if (nextValue && busLocation) {
+      setTimeout(() => {
+        focusMapOnLocation(busLocation, 500);
+      }, 100);
+    }
+  }
 
   useEffect(() => {
     followBusRef.current = followBus;
   }, [followBus]);
 
-  /*
-  |--------------------------------------------------------------------------
-  | Clock and Supabase realtime subscription
-  |--------------------------------------------------------------------------
-  */
-
   useEffect(() => {
-    fetchBusLocation();
-
     const clockTimer = setInterval(() => {
       setCurrentTime(Date.now());
     }, 1000);
-
-    const realtimeChannel = supabase
-      .channel(`live-location-${BUS_ID}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'live_locations',
-          filter: `bus_id=eq.${BUS_ID}`,
-        },
-        payload => {
-          console.log('REALTIME LOCATION UPDATE:', payload);
-
-          const newLocation = payload?.new;
-
-          if (
-            newLocation &&
-            typeof newLocation.latitude === 'number' &&
-            typeof newLocation.longitude === 'number'
-          ) {
-            setBusLocation(newLocation);
-            setErrorMessage('');
-
-            focusMapOnLocation(newLocation);
-          }
-        },
-      )
-      .subscribe(subscriptionStatus => {
-        console.log('REALTIME SUBSCRIPTION STATUS:', subscriptionStatus);
-      });
 
     return () => {
       clearInterval(clockTimer);
@@ -720,16 +693,51 @@ export default function App() {
         locationSubscriptionRef.current.remove();
         locationSubscriptionRef.current = null;
       }
-
-      supabase.removeChannel(realtimeChannel);
     };
   }, []);
 
-  /*
-  |--------------------------------------------------------------------------
-  | Driver screen
-  |--------------------------------------------------------------------------
-  */
+  useEffect(() => {
+    loadRoutes();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedStudentBusId) {
+      setBusLocation(null);
+      return undefined;
+    }
+
+    fetchBusLocation(selectedStudentBusId);
+
+    const realtimeChannel = supabase
+      .channel(`student-live-location-${selectedStudentBusId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'live_locations',
+          filter: `bus_id=eq.${selectedStudentBusId}`,
+        },
+        payload => {
+          const normalizedLocation = normalizeLocation(payload?.new);
+
+          if (normalizedLocation) {
+            setBusLocation(normalizedLocation);
+
+            setErrorMessage('');
+
+            focusMapOnLocation(normalizedLocation);
+          }
+        },
+      )
+      .subscribe(subscriptionStatus => {
+        console.log('REALTIME SUBSCRIPTION STATUS:', subscriptionStatus);
+      });
+
+    return () => {
+      supabase.removeChannel(realtimeChannel);
+    };
+  }, [selectedStudentBusId]);
 
   if (mode === 'driver') {
     return (
@@ -847,7 +855,8 @@ export default function App() {
                 <Text style={styles.summaryTitle}>Last Trip Summary</Text>
 
                 <Text style={styles.summaryText}>
-                  Trip ID: {lastTripSummary.id.slice(0, 8)}...
+                  Trip ID: {lastTripSummary.id.slice(0, 8)}
+                  ...
                 </Text>
 
                 <Text style={styles.summaryText}>
@@ -929,14 +938,12 @@ export default function App() {
     );
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | Student screen
-  |--------------------------------------------------------------------------
-  */
-
   if (mode === 'student') {
     const studentStatus = getStudentStatusInfo();
+
+    const selectedRoute = getSelectedRoute();
+
+    const selectedBus = getSelectedBus();
 
     return (
       <SafeAreaView style={styles.container}>
@@ -949,8 +956,53 @@ export default function App() {
           <View style={styles.headerSmall}>
             <Text style={styles.title}>Student Mode</Text>
 
-            <Text style={styles.subtitle}>Live bus location map.</Text>
+            <Text style={styles.subtitle}>
+              Select a route and view its live shuttle.
+            </Text>
           </View>
+
+          <RouteSelector
+            routes={routes}
+            selectedRouteId={selectedRouteId}
+            onSelectRoute={handleRouteSelection}
+            loading={routeLoading}
+            errorMessage={routeErrorMessage}
+          />
+
+          {selectedRoute ? (
+            <View style={styles.routeSummaryBox}>
+              <Text style={styles.routeSummaryTitle}>
+                {selectedRoute.shortName}
+              </Text>
+
+              <Text style={styles.routeSummaryText}>
+                {selectedRoute.origin}
+                {'  →  '}
+                {selectedRoute.destination}
+              </Text>
+
+              {loadingRouteBuses ? (
+                <View style={styles.inlineLoadingRow}>
+                  <ActivityIndicator size="small" color="#2563EB" />
+
+                  <Text style={styles.inlineLoadingText}>
+                    Loading active buses...
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.routeSummaryText}>
+                    Active buses: {routeBuses.length}
+                  </Text>
+
+                  <Text style={styles.routeSummaryText}>
+                    Tracking:{' '}
+                    {selectedBus ? selectedBus.displayName : 'No active bus'}
+                  </Text>
+                </>
+              )}
+            </View>
+          ) : null}
 
           <View style={styles.mapCard}>
             <MapView
@@ -960,7 +1012,7 @@ export default function App() {
               mapType="none"
               showsUserLocation={false}
               showsMyLocationButton={false}
-              showsCompass={true}
+              showsCompass
               toolbarEnabled={false}
               onMapReady={() => {
                 if (busLocation) {
@@ -977,44 +1029,18 @@ export default function App() {
               />
 
               {busLocation ? (
-                <Marker
-                  coordinate={{
-                    latitude: Number(busLocation.latitude),
-                    longitude: Number(busLocation.longitude),
-                  }}
-                  anchor={{
-                    x: 0.5,
-                    y: 0.5,
-                  }}
-                  tracksViewChanges={true}
-                >
-                  <View style={styles.cleanBusMarkerContainer}>
-                    <Image
-                      source={require('./assets/uiu-bus-marker.png')}
-                      style={styles.cleanBusMarkerImage}
-                      resizeMode="contain"
-                    />
-
-                    <View
-                      style={[
-                        styles.cleanBusStatusDot,
-                        studentStatus.type === 'live'
-                          ? styles.cleanBusLive
-                          : studentStatus.type === 'delayed'
-                            ? styles.cleanBusDelayed
-                            : styles.cleanBusOffline,
-                      ]}
-                    />
-                  </View>
-                </Marker>
+                <BusMarker
+                  location={busLocation}
+                  statusType={studentStatus.type}
+                />
               ) : null}
             </MapView>
 
             {!busLocation ? (
               <View style={styles.mapLoadingOverlay} pointerEvents="none">
-                {loadingLocation ? (
+                {loadingLocation || loadingRouteBuses ? (
                   <>
-                    <ActivityIndicator size="large" />
+                    <ActivityIndicator size="large" color="#2563EB" />
 
                     <Text style={styles.mapLoadingText}>
                       Loading bus location...
@@ -1022,7 +1048,9 @@ export default function App() {
                   </>
                 ) : (
                   <Text style={styles.errorText}>
-                    {errorMessage || 'No bus location found.'}
+                    {errorMessage ||
+                      busSelectionMessage ||
+                      'No active bus location found.'}
                   </Text>
                 )}
               </View>
@@ -1036,9 +1064,21 @@ export default function App() {
 
             <Text style={styles.statusText}>{studentStatus.text}</Text>
 
+            {selectedRoute ? (
+              <Text style={styles.locationText}>
+                Route: {selectedRoute.shortName}
+              </Text>
+            ) : null}
+
+            <Text style={styles.locationText}>
+              Bus: {selectedBus ? selectedBus.displayName : 'No active bus'}
+            </Text>
+
             {busLocation ? (
               <>
-                <Text style={styles.locationText}>Bus ID: {BUS_ID}</Text>
+                <Text style={styles.locationText}>
+                  Bus ID: {selectedStudentBusId}
+                </Text>
 
                 <Text style={styles.locationText}>
                   Latitude: {busLocation.latitude}
@@ -1066,19 +1106,7 @@ export default function App() {
 
             <TouchableOpacity
               style={followBus ? styles.followOnButton : styles.followOffButton}
-              onPress={() => {
-                setFollowBus(previousValue => {
-                  const newValue = !previousValue;
-
-                  if (newValue && busLocation) {
-                    setTimeout(() => {
-                      focusMapOnLocation(busLocation, 500);
-                    }, 100);
-                  }
-
-                  return newValue;
-                });
-              }}
+              onPress={toggleFollowBus}
             >
               <Text style={styles.buttonText}>
                 {followBus ? 'Follow Bus: ON' : 'Follow Bus: OFF'}
@@ -1086,8 +1114,12 @@ export default function App() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={fetchBusLocation}
+              style={[
+                styles.secondaryButton,
+                !selectedStudentBusId && styles.disabledButton,
+              ]}
+              onPress={() => fetchBusLocation(selectedStudentBusId)}
+              disabled={!selectedStudentBusId}
             >
               <Text style={styles.buttonText}>Refresh Location</Text>
             </TouchableOpacity>
@@ -1105,12 +1137,6 @@ export default function App() {
       </SafeAreaView>
     );
   }
-
-  /*
-  |--------------------------------------------------------------------------
-  | Beta guide screen
-  |--------------------------------------------------------------------------
-  */
 
   if (mode === 'guide') {
     return (
@@ -1134,24 +1160,24 @@ export default function App() {
 
             <Text style={styles.guideItem}>1. Phone internet ON rakhbe.</Text>
 
-            <Text style={styles.guideItem}>2. GPS / Location ON rakhbe.</Text>
+            <Text style={styles.guideItem}>2. GPS or Location ON rakhbe.</Text>
 
             <Text style={styles.guideItem}>3. Battery saver OFF rakhbe.</Text>
 
             <Text style={styles.guideItem}>
-              4. App open kore Continue as Driver press korbe.
+              4. Continue as Driver press korbe.
             </Text>
 
             <Text style={styles.guideItem}>
-              5. Start Tracking press kore location permission Allow dibe.
+              5. Start Tracking press kore permission allow dibe.
             </Text>
 
             <Text style={styles.guideItem}>
-              6. 3-5 minutes normal walk or ride test korbe.
+              6. Normal walk or ride test korbe.
             </Text>
 
             <Text style={styles.guideItem}>
-              7. Stop Tracking press kore Trip Summary check korbe.
+              7. Stop Tracking press kore summary check korbe.
             </Text>
           </View>
 
@@ -1159,47 +1185,21 @@ export default function App() {
             <Text style={styles.guideTitle}>Student Tester</Text>
 
             <Text style={styles.guideItem}>
-              1. App open kore Continue as Student press korbe.
+              1. Continue as Student press korbe.
+            </Text>
+
+            <Text style={styles.guideItem}>2. Route select korbe.</Text>
+
+            <Text style={styles.guideItem}>
+              3. Active bus and map marker check korbe.
             </Text>
 
             <Text style={styles.guideItem}>
-              2. Map-e bus marker show hocche kina check korbe.
+              4. Follow Bus ON or OFF test korbe.
             </Text>
 
             <Text style={styles.guideItem}>
-              3. Follow Bus ON rakhle map bus-ke automatically follow korbe.
-            </Text>
-
-            <Text style={styles.guideItem}>
-              4. Follow Bus OFF korle map manually move kora jabe.
-            </Text>
-
-            <Text style={styles.guideItem}>
-              5. BUS LIVE, DELAYED and OFFLINE status check korbe.
-            </Text>
-
-            <Text style={styles.guideItem}>
-              6. Accuracy and last updated time check korbe.
-            </Text>
-          </View>
-
-          <View style={styles.guideCard}>
-            <Text style={styles.guideTitle}>Successful Test Means</Text>
-
-            <Text style={styles.guideItem}>
-              ✓ Driver location Supabase-e update hocche.
-            </Text>
-
-            <Text style={styles.guideItem}>
-              ✓ Student map-e marker realtime move kortese.
-            </Text>
-
-            <Text style={styles.guideItem}>
-              ✓ Stop korar por trip summary show kortese.
-            </Text>
-
-            <Text style={styles.guideItem}>
-              ✓ Tracking quality Excellent or Good ashtese.
+              5. Live, delayed and offline status check korbe.
             </Text>
           </View>
 
@@ -1214,12 +1214,6 @@ export default function App() {
     );
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | Home screen
-  |--------------------------------------------------------------------------
-  */
-
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -1232,8 +1226,8 @@ export default function App() {
           <Text style={styles.title}>Shuttle Live Tracking</Text>
 
           <Text style={styles.subtitle}>
-            Driver live location send korbe and student realtime map-e bus
-            dekhbe.
+            Driver live location send korbe and student route select kore
+            realtime bus dekhbe.
           </Text>
         </View>
 
@@ -1266,20 +1260,14 @@ export default function App() {
           <Text style={styles.infoTitle}>Current Goal</Text>
 
           <Text style={styles.infoText}>
-            Driver phone move korle student map-e transparent orange bus marker
-            realtime update hobe.
+            Student route select korbe and selected route-er active shuttle live
+            map-e dekhbe.
           </Text>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
-
-/*
-|--------------------------------------------------------------------------
-| Application styles
-|--------------------------------------------------------------------------
-*/
 
 const styles = StyleSheet.create({
   container: {
@@ -1335,6 +1323,46 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 10,
     elevation: 4,
+  },
+
+  routeSummaryBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 15,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    shadowColor: '#000000',
+    shadowOpacity: 0.05,
+    shadowRadius: 7,
+    elevation: 2,
+  },
+
+  routeSummaryTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1D4ED8',
+    marginBottom: 6,
+  },
+
+  routeSummaryText: {
+    fontSize: 13,
+    color: '#475569',
+    fontWeight: '600',
+    lineHeight: 20,
+    marginBottom: 3,
+  },
+
+  inlineLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+
+  inlineLoadingText: {
+    fontSize: 13,
+    color: '#475569',
+    marginLeft: 9,
   },
 
   mapCard: {
@@ -1610,43 +1638,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#334155',
     lineHeight: 21,
-  },
-
-  cleanBusMarkerContainer: {
-    width: 110,
-    height: 62,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-
-  cleanBusMarkerImage: {
-    width: 102,
-    height: 52,
-  },
-
-  cleanBusStatusDot: {
-    position: 'absolute',
-    top: 2,
-    right: 4,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-    zIndex: 10,
-    elevation: 10,
-  },
-
-  cleanBusLive: {
-    backgroundColor: '#16A34A',
-  },
-
-  cleanBusDelayed: {
-    backgroundColor: '#F59E0B',
-  },
-
-  cleanBusOffline: {
-    backgroundColor: '#6B7280',
   },
 });
