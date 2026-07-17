@@ -16,6 +16,7 @@ import * as Location from 'expo-location';
 import MapView, { Marker, UrlTile } from 'react-native-maps';
 
 import { supabase } from './lib/supabase';
+import { BUS_ID, getInitialMode, canGoBackHome } from './src/config/appConfig';
 
 /*
 |--------------------------------------------------------------------------
@@ -23,24 +24,6 @@ import { supabase } from './lib/supabase';
 |--------------------------------------------------------------------------
 */
 
-const BUS_ID = 'bus_001';
-const APP_MODE = process.env.EXPO_PUBLIC_APP_MODE || 'home';
-
-function getInitialMode() {
-  if (APP_MODE === 'driver') {
-    return 'driver';
-  }
-
-  if (APP_MODE === 'student') {
-    return 'student';
-  }
-
-  return 'home';
-}
-
-function canGoBackHome() {
-  return APP_MODE === 'home';
-}
 
 /*
 |--------------------------------------------------------------------------
