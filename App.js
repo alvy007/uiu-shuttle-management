@@ -22,6 +22,7 @@ import {
   formatTime,
   calculateTrackingQuality,
 } from './src/utils/trackingUtils';
+import { getBusStatusInfo } from './src/utils/statusUtils';
 
 /*
 |--------------------------------------------------------------------------
@@ -143,95 +144,20 @@ export default function App() {
   |--------------------------------------------------------------------------
   */
 
-  function getLocationAgeInfo(updatedAt, isActive) {
-    if (!updatedAt) {
-      return {
-        text: 'No update time available',
-        status: 'offline',
-      };
-    }
-
-    const updatedTime = new Date(updatedAt).getTime();
-
-    if (!Number.isFinite(updatedTime)) {
-      return {
-        text: 'Invalid update time',
-        status: 'offline',
-      };
-    }
-
-    const differenceSeconds = Math.max(
-      0,
-      Math.floor((currentTime - updatedTime) / 1000),
-    );
-
-    if (!isActive) {
-      return {
-        text: `Bus offline, last updated ${differenceSeconds}s ago`,
-        status: 'offline',
-      };
-    }
-
-    if (differenceSeconds <= 15) {
-      return {
-        text: `Live, updated ${differenceSeconds}s ago`,
-        status: 'live',
-      };
-    }
-
-    if (differenceSeconds <= 60) {
-      return {
-        text: `Delayed, updated ${differenceSeconds}s ago`,
-        status: 'delayed',
-      };
-    }
-
-    const differenceMinutes = Math.floor(differenceSeconds / 60);
-
-    return {
-      text: `Outdated, updated ${differenceMinutes}m ago`,
-      status: 'offline',
-    };
-  }
-
   function getStudentStatusInfo() {
-    if (!busLocation) {
-      return {
-        label: 'NO DATA',
-        type: 'offline',
-        style: styles.offlineBadge,
-        text: 'No bus location data found.',
-      };
-    }
+    const statusInformation = getBusStatusInfo(busLocation, currentTime);
 
-    const locationAge = getLocationAgeInfo(
-      busLocation.updated_at,
-      busLocation.is_active,
-    );
+    let statusStyle = styles.offlineBadge;
 
-    if (locationAge.status === 'live') {
-      return {
-        label: 'BUS LIVE',
-        type: 'live',
-        style: styles.liveBadge,
-        text: locationAge.text,
-      };
-    }
-
-    if (locationAge.status === 'delayed') {
-      return {
-        label: 'BUS DELAYED',
-        type: 'delayed',
-        style: styles.delayedBadge,
-        text: locationAge.text,
-      };
+    if (statusInformation.type === 'live') {
+      statusStyle = styles.liveBadge;
+    } else if (statusInformation.type === 'delayed') {
+      statusStyle = styles.delayedBadge;
     }
 
     return {
-      label: 'BUS OFFLINE',
-      type: 'offline',
-      style: styles.offlineBadge,
-      text: locationAge.text,
+      ...statusInformation,
+      style: statusStyle,
     };
   }
 
@@ -262,9 +188,6 @@ export default function App() {
 
     return `${minutes}m ${seconds}s`;
   }
-
-
-  
 
   function getQualityStyle(quality) {
     if (quality === 'Excellent') {
