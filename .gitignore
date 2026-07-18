@@ -47,3 +47,7 @@ node_modules/
 dist/
 *.apk
 *.aab
+admin-panel/.env.local
+admin-panel/.next/
+admin-panel/node_modules/
+admin-panel/.vercel/
