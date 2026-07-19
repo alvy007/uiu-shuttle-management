@@ -2,67 +2,206 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
-  }
-  .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-  }
+/* =========================================================
+   UIU SHUTTLE MANAGEMENT DESIGN SYSTEM
+   ========================================================= */
+
+:root {
+  /* UIU-inspired primary identity */
+  --uiu-orange: #f37021;
+  --uiu-orange-dark: #c95212;
+  --uiu-orange-soft: #fff3e8;
+
+  /* Main neutral colors */
+  --uiu-black: #171717;
+  --uiu-charcoal: #242424;
+  --uiu-dark-gray: #374151;
+
+  --uiu-white: #ffffff;
+  --uiu-page: #f6f7f8;
+  --uiu-surface: #ffffff;
+  --uiu-border: #e5e7eb;
+
+  --uiu-text: #171717;
+  --uiu-text-secondary: #6b7280;
+  --uiu-text-muted: #9ca3af;
+
+  /* Operational status colors */
+  --uiu-success: #16a34a;
+  --uiu-success-soft: #ecfdf5;
+
+  --uiu-warning: #d97706;
+  --uiu-warning-soft: #fffbeb;
+
+  --uiu-danger: #dc2626;
+  --uiu-danger-soft: #fef2f2;
+
+  --uiu-info: #2563eb;
+  --uiu-info-soft: #eff6ff;
+
+  /* Shared UI values */
+  --uiu-radius-small: 10px;
+  --uiu-radius-medium: 16px;
+  --uiu-radius-large: 24px;
+
+  --uiu-shadow-small:
+    0 1px 2px rgba(15, 23, 42, 0.05), 0 4px 12px rgba(15, 23, 42, 0.05);
+
+  --uiu-shadow-medium: 0 10px 30px rgba(15, 23, 42, 0.08);
 }
 
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
+/* =========================================================
+   GLOBAL RESET
+   ========================================================= */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--uiu-page);
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  background: var(--uiu-page);
+  color: var(--uiu-text);
+  font-family: Arial, Helvetica, sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(243, 112, 33, 0.3);
+  outline-offset: 2px;
+}
+
+/* =========================================================
+   SHARED ADMIN UTILITY CLASSES
+   ========================================================= */
+
+.uiu-admin-page {
+  min-height: 100vh;
+  background: var(--uiu-page);
+  color: var(--uiu-text);
+}
+
+.uiu-card {
+  border: 1px solid var(--uiu-border);
+  border-radius: var(--uiu-radius-medium);
+  background: var(--uiu-surface);
+  box-shadow: var(--uiu-shadow-small);
+}
+
+.uiu-primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--uiu-radius-small);
+  background: var(--uiu-orange);
+  padding: 0 18px;
+  color: var(--uiu-white);
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.uiu-primary-button:hover {
+  background: var(--uiu-orange-dark);
+  box-shadow: 0 8px 20px rgba(243, 112, 33, 0.2);
+  transform: translateY(-1px);
+}
+
+.uiu-secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 1px solid var(--uiu-border);
+  border-radius: var(--uiu-radius-small);
+  background: var(--uiu-white);
+  padding: 0 18px;
+  color: var(--uiu-black);
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.uiu-secondary-button:hover {
+  border-color: var(--uiu-orange);
+  background: var(--uiu-orange-soft);
+}
+
+.uiu-status-live {
+  background: var(--uiu-success-soft);
+  color: var(--uiu-success);
+}
+
+.uiu-status-warning {
+  background: var(--uiu-warning-soft);
+  color: var(--uiu-warning);
+}
+
+.uiu-status-offline {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+/* =========================================================
+   SCROLLBAR
+   ========================================================= */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }

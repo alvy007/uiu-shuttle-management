@@ -167,6 +167,10 @@ export default function RouteEditForm({ route }: { route: EditableRoute }) {
             maxLength={600}
             defaultValue={state.values.description}
             placeholder="Add route details..."
+            aria-invalid={Boolean(state.fieldErrors.description)}
+            aria-describedby={
+              state.fieldErrors.description ? 'description-error' : undefined
+            }
             className={`mt-3 w-full resize-y rounded-xl border bg-white px-4 py-3 text-sm leading-6 text-[#171717] transition placeholder:text-gray-400 focus:border-[#F37021] focus:outline-none focus:ring-4 focus:ring-orange-100 ${
               state.fieldErrors.description
                 ? 'border-red-400'
@@ -189,7 +193,6 @@ export default function RouteEditForm({ route }: { route: EditableRoute }) {
         <div className="lg:col-span-2">
           <label className="flex cursor-pointer items-start gap-4 rounded-2xl border border-orange-100 bg-orange-50/70 p-5 transition hover:border-[#F37021]">
             <input
-              key={state.values.isActive ? 'active' : 'inactive'}
               type="checkbox"
               name="is_active"
               defaultChecked={state.values.isActive}
