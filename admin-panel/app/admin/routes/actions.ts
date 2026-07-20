@@ -11,6 +11,21 @@ import { createClient } from '@/lib/supabase/server';
 type RouteValues = RouteActionState['values'];
 type RouteFieldErrors = RouteActionState['fieldErrors'];
 
+type RouteDeleteDependencies = {
+  buses: number;
+  driverAssignments: number;
+  liveLocations: number;
+  trips: number;
+  total: number;
+};
+
+type RouteDeleteActionResult = {
+  success: boolean;
+  code: string;
+  message: string;
+  dependencies?: RouteDeleteDependencies;
+};
+
 // =========================================================
 // CREATE ROUTE
 // =========================================================
@@ -124,7 +139,6 @@ export async function updateRouteAction(
     );
   }
 
-  // Confirm that the requested route still exists.
   const { data: currentRoute, error: currentRouteError } = await supabase
     .from('routes')
     .select('id')
@@ -206,6 +220,83 @@ export async function updateRouteAction(
   revalidatePath(`/admin/routes/${cleanRouteId}/edit`);
 
   redirect('/admin/routes');
+}
+
+// =========================================================
+// DELETE ROUTE SAFELY
+// =========================================================
+
+export async function deleteRouteAction(
+  routeId: string,
+): Promise<RouteDeleteActionResult> {
+  const cleanRouteId = routeId.trim();
+
+  if (!cleanRouteId) {
+    return {
+      success: false,
+      code: 'INVALID_ROUTE_ID',
+      message:
+        'The route ID is missing. Return to Route Management and try again.',
+    };
+  }
+
+  const { supabase, isActiveAdmin } = await getAdminContext();
+
+  if (!isActiveAdmin) {
+    return {
+      success: false,
+      code: 'ADMIN_PERMISSION_REQUIRED',
+      message:
+        'Your account does not have permission to delete shuttle routes.',
+    };
+  }
+
+  const { data: deleteResponse, error: deleteError } = await supabase.rpc(
+    'delete_route_safely',
+    {
+      p_route_id: cleanRouteId,
+    },
+  );
+
+  if (deleteError) {
+    logDatabaseError('Safe route deletion failed', deleteError);
+
+    if (deleteError.code === '42501') {
+      return {
+        success: false,
+        code: 'ADMIN_PERMISSION_REQUIRED',
+        message:
+          'Database security rejected this request. Confirm that you are signed in with an active admin account.',
+      };
+    }
+
+    if (deleteError.code === '42883') {
+      return {
+        success: false,
+        code: 'DELETE_FUNCTION_NOT_FOUND',
+        message:
+          'The secure route delete function is unavailable in the database.',
+      };
+    }
+
+    return {
+      success: false,
+      code: 'DATABASE_DELETE_ERROR',
+      message: 'The route could not be deleted because of a database error.',
+    };
+  }
+
+  const result = parseRouteDeleteResponse(deleteResponse);
+
+  if (!result.success) {
+    return result;
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/routes');
+  revalidatePath(`/admin/routes/${cleanRouteId}/edit`);
+
+  return result;
 }
 
 // =========================================================
@@ -350,6 +441,71 @@ function validateRouteValues(values: RouteValues): RouteFieldErrors {
   }
 
   return fieldErrors;
+}
+
+// =========================================================
+// DELETE RESPONSE PARSER
+// =========================================================
+
+function parseRouteDeleteResponse(value: unknown): RouteDeleteActionResult {
+  if (!isRecord(value)) {
+    return {
+      success: false,
+      code: 'INVALID_DELETE_RESPONSE',
+      message: 'The database returned an invalid delete response.',
+    };
+  }
+
+  const success = value.success === true;
+
+  const code =
+    typeof value.code === 'string'
+      ? value.code
+      : success
+        ? 'ROUTE_DELETED'
+        : 'ROUTE_DELETE_FAILED';
+
+  const message =
+    typeof value.message === 'string'
+      ? value.message
+      : success
+        ? 'The shuttle route was deleted successfully.'
+        : 'The shuttle route could not be deleted.';
+
+  const dependencies = parseDeleteDependencies(value.dependencies);
+
+  return {
+    success,
+    code,
+    message,
+    ...(dependencies ? { dependencies } : {}),
+  };
+}
+
+function parseDeleteDependencies(
+  value: unknown,
+): RouteDeleteDependencies | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return {
+    buses: toSafeNumber(value.buses),
+    driverAssignments: toSafeNumber(value.driver_assignments),
+    liveLocations: toSafeNumber(value.live_locations),
+    trips: toSafeNumber(value.trips),
+    total: toSafeNumber(value.total),
+  };
+}
+
+function toSafeNumber(value: unknown): number {
+  const numberValue = Number(value);
+
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 // =========================================================

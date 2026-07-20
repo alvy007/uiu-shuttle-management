@@ -3,42 +3,19 @@
 import Link from 'next/link';
 import { useActionState } from 'react';
 
-import { updateRouteAction } from '@/app/admin/routes/actions';
-import type { RouteActionState } from '@/lib/routes/route-action-state';
+import { createRouteAction } from '@/app/admin/routes/actions';
+import {
+  initialRouteActionState,
+  type RouteActionState,
+} from '@/lib/routes/route-action-state';
 
-type EditableRoute = {
-  id: string;
-  route_name: string;
-  short_name: string;
-  origin: string;
-  destination: string;
-  description: string | null;
-  is_active: boolean;
-};
-
-export default function RouteEditForm({ route }: { route: EditableRoute }) {
-  const initialState: RouteActionState = {
-    status: 'idle',
-    message: '',
-    fieldErrors: {},
-    values: {
-      routeName: route.route_name,
-      shortName: route.short_name,
-      origin: route.origin,
-      destination: route.destination,
-      description: route.description ?? '',
-      isActive: route.is_active,
-    },
-  };
-
-  const updateRouteWithId = updateRouteAction.bind(null, route.id);
-
+export default function RouteCreateForm() {
   const [actionState, formAction, isPending] = useActionState<
     RouteActionState,
     FormData
-  >(updateRouteWithId, initialState);
+  >(createRouteAction, initialRouteActionState);
 
-  const state = actionState ?? initialState;
+  const state = actionState ?? initialRouteActionState;
 
   return (
     <form action={formAction} className="uiu-card overflow-hidden">
@@ -47,32 +24,18 @@ export default function RouteEditForm({ route }: { route: EditableRoute }) {
       ================================================= */}
 
       <div className="border-b border-gray-100 px-6 py-6 sm:px-8">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#F37021]">
-              Route Information
-            </p>
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-[#F37021]">
+          Route Information
+        </p>
 
-            <h2 className="mt-2 text-2xl font-black text-[#171717]">
-              Update Shuttle Route
-            </h2>
+        <h2 className="mt-2 text-2xl font-black text-[#171717]">
+          Create a New Shuttle Route
+        </h2>
 
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-500">
-              Edit the route information carefully. The internal route ID will
-              remain unchanged.
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-            <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">
-              Route ID
-            </p>
-
-            <p className="mt-1 break-all text-xs font-black text-[#171717]">
-              {route.id}
-            </p>
-          </div>
-        </div>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-500">
+          Enter the operational route information carefully. A unique internal
+          route ID will be generated automatically by the system.
+        </p>
       </div>
 
       {/* =================================================
@@ -88,7 +51,7 @@ export default function RouteEditForm({ route }: { route: EditableRoute }) {
 
             <div>
               <p className="text-sm font-black text-red-800">
-                Route could not be updated
+                Route could not be created
               </p>
 
               <p className="mt-1 text-sm leading-6 text-red-700">
@@ -166,7 +129,11 @@ export default function RouteEditForm({ route }: { route: EditableRoute }) {
             rows={5}
             maxLength={600}
             defaultValue={state.values.description}
-            placeholder="Add route details..."
+            placeholder="Example: Travels through Bashundhara Residential Area and Madani Avenue before reaching UIU."
+            aria-invalid={Boolean(state.fieldErrors.description)}
+            aria-describedby={
+              state.fieldErrors.description ? 'description-error' : undefined
+            }
             className={`mt-3 w-full resize-y rounded-xl border bg-white px-4 py-3 text-sm leading-6 text-[#171717] transition placeholder:text-gray-400 focus:border-[#F37021] focus:outline-none focus:ring-4 focus:ring-orange-100 ${
               state.fieldErrors.description
                 ? 'border-red-400'
@@ -198,12 +165,12 @@ export default function RouteEditForm({ route }: { route: EditableRoute }) {
 
             <span>
               <span className="block text-sm font-black text-[#171717]">
-                Route is active
+                Activate this route immediately
               </span>
 
               <span className="mt-1 block text-xs leading-5 text-gray-500">
-                Active routes may appear in the student and driver applications.
-                Uncheck this option to temporarily disable the route.
+                Active routes may be displayed inside the student and driver
+                applications. Uncheck this option to save the route as inactive.
               </span>
             </span>
           </label>
@@ -216,7 +183,7 @@ export default function RouteEditForm({ route }: { route: EditableRoute }) {
 
       <div className="flex flex-col-reverse gap-3 border-t border-gray-100 bg-gray-50 px-6 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8">
         <p className="text-xs leading-5 text-gray-400">
-          Saving will update this route without changing its route ID.
+          All required fields must be completed before submission.
         </p>
 
         <div className="flex flex-col gap-3 sm:flex-row">
@@ -237,10 +204,10 @@ export default function RouteEditForm({ route }: { route: EditableRoute }) {
             {isPending ? (
               <span className="flex items-center gap-2">
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                Saving...
+                Creating...
               </span>
             ) : (
-              'Save Changes'
+              'Create Route'
             )}
           </button>
         </div>

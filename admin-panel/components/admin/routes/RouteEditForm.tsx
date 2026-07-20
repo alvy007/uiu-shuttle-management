@@ -6,6 +6,8 @@ import { useActionState } from 'react';
 import { updateRouteAction } from '@/app/admin/routes/actions';
 import type { RouteActionState } from '@/lib/routes/route-action-state';
 
+import RouteDeleteButton from './RouteDeleteButton';
+
 type EditableRoute = {
   id: string;
   route_name: string;
@@ -217,35 +219,46 @@ export default function RouteEditForm({ route }: { route: EditableRoute }) {
           FORM ACTIONS
       ================================================= */}
 
-      <div className="flex flex-col-reverse gap-3 border-t border-gray-100 bg-gray-50 px-6 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-        <p className="text-xs leading-5 text-gray-400">
-          Saving will update this route without changing its route ID.
-        </p>
+      <div className="border-t border-gray-100 bg-gray-50 px-6 py-5 sm:px-8">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <RouteDeleteButton
+              routeId={route.id}
+              routeName={state.values.routeName}
+              disabled={isPending}
+            />
 
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Link
-            href="/admin/routes"
-            className={`uiu-secondary-button ${
-              isPending ? 'pointer-events-none opacity-50' : ''
-            }`}
-          >
-            Cancel
-          </Link>
+            <p className="mt-2 max-w-md text-xs leading-5 text-gray-400">
+              Delete is permanently allowed only when this route has no
+              connected operational data.
+            </p>
+          </div>
 
-          <button
-            type="submit"
-            disabled={isPending}
-            className="uiu-primary-button min-w-[160px] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isPending ? (
-              <span className="flex items-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                Saving...
-              </span>
-            ) : (
-              'Save Changes'
-            )}
-          </button>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Link
+              href="/admin/routes"
+              className={`uiu-secondary-button ${
+                isPending ? 'pointer-events-none opacity-50' : ''
+              }`}
+            >
+              Cancel
+            </Link>
+
+            <button
+              type="submit"
+              disabled={isPending}
+              className="uiu-primary-button min-w-[160px] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isPending ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  Saving...
+                </span>
+              ) : (
+                'Save Changes'
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </form>
